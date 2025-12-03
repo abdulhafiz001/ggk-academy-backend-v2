@@ -50,6 +50,9 @@
             "@php artisan migrate --ansi"
         ],
         "vercel": [
+            "mkdir -p /tmp/storage/framework/views",
+            "mkdir -p /tmp/storage/framework/cache",
+            "mkdir -p /tmp/storage/framework/sessions",
             "php artisan optimize:clear",
             "php artisan migrate --force"
         ]

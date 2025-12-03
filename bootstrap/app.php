@@ -5,7 +5,8 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
 
-return Application::configure(basePath: dirname(__DIR__))
+// 1. Assign the application instance to the $app variable
+$app = Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
         web: __DIR__.'/../routes/web.php',
         api: __DIR__.'/../routes/api.php',
@@ -29,16 +30,15 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->trustProxies('*',
             Request::HEADER_X_FORWARDED_FOR | Request::HEADER_X_FORWARDED_HOST | Request::HEADER_X_FORWARDED_PORT | Request::HEADER_X_FORWARDED_PROTO);
     })
-
-
     ->withExceptions(function (Exceptions $exceptions) {
-
-        
         //
-    })->create();
+    })->create(); 
 
-    // 💡 ADD THIS BLOCK HERE 💡
+// 2. Use the assigned $app variable to set the storage path
 if (isset($_ENV['VERCEL_ENV']) || isset($_ENV['VERCEL'])) {
     // This tells Laravel to use /tmp/storage/ for all writes (views, cache, sessions, logs)
-        $app->useStoragePath('/tmp/storage');
-    }
+    $app->useStoragePath('/tmp/storage');
+}
+
+// 3. Return the application instance
+return $app;
