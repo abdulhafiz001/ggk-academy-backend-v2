@@ -34,11 +34,18 @@ $app = Application::configure(basePath: dirname(__DIR__))
         //
     })->create(); 
 
-// 2. Use the assigned $app variable to set the storage path
-if (isset($_ENV['VERCEL_ENV']) || isset($_ENV['VERCEL'])) {
-    // This tells Laravel to use /tmp/storage/ for all writes (views, cache, sessions, logs)
-    $app->useStoragePath('/tmp/storage');
-}
-
-// 3. Return the application instance
-return $app;
+    if (isset($_ENV['VERCEL_ENV']) || isset($_ENV['VERCEL'])) {
+        // Set the primary storage path to the writable /tmp directory
+        $app->useStoragePath('/tmp/storage');
+    
+        // CRITICAL FIX: Explicitly bind the view compiled path.
+        // This prevents the InvalidArgumentException ("Please provide a valid cache path.")
+        // by ensuring the View Compiler knows exactly where to put compiled views in the
+        // serverless environment, which is read-only outside of /tmp.
+        $app->instance('config', $app->make('config')->set(
+            'view.compiled', 
+            '/tmp/storage/framework/views'
+        ));
+    }
+    
+    return $app;
