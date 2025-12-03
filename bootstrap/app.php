@@ -32,5 +32,13 @@ return Application::configure(basePath: dirname(__DIR__))
 
 
     ->withExceptions(function (Exceptions $exceptions) {
+
+        
         //
     })->create();
+
+    // 💡 ADD THIS BLOCK HERE 💡
+if (isset($_ENV['VERCEL_ENV']) || isset($_ENV['VERCEL'])) {
+    // This tells Laravel to use /tmp/storage/ for all writes (views, cache, sessions, logs)
+        $app->useStoragePath('/tmp/storage');
+    }

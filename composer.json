@@ -50,7 +50,9 @@
             "@php artisan migrate --ansi"
         ],
         "vercel": [
-            "php artisan migrate --force"
+            "PHP artisan config:cache",
+            "PHP artisan view:clear", 
+            "PHP artisan migrate --force"
         ]
     },
     "extra": {
