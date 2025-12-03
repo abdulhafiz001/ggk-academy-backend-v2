@@ -34,18 +34,17 @@ $app = Application::configure(basePath: dirname(__DIR__))
         //
     })->create(); 
 
+    // Vercel/Serverless Specific Fix: Use the writable /tmp directory.
     if (isset($_ENV['VERCEL_ENV']) || isset($_ENV['VERCEL'])) {
-        // Set the primary storage path to the writable /tmp directory
+        // 1. Set the primary storage path to the writable /tmp directory (Fixes Read-Only errors)
         $app->useStoragePath('/tmp/storage');
     
-        // CRITICAL FIX: Explicitly bind the view compiled path.
-        // This prevents the InvalidArgumentException ("Please provide a valid cache path.")
-        // by ensuring the View Compiler knows exactly where to put compiled views in the
-        // serverless environment, which is read-only outside of /tmp.
-        $app->instance('config', $app->make('config')->set(
-            'view.compiled', 
-            '/tmp/storage/framework/views'
-        ));
+        // 2. CRITICAL FIX: Explicitly set the view compiled path using stable array access.
+        // This prevents dependency injection errors when Artisan commands (like optimize:clear)
+        // run during the Vercel build, ensuring the path is correctly set to a writable location.
+        if ($app->has('config')) {
+            $app['config']->set('view.compiled', '/tmp/storage/framework/views');
+        }
     }
     
     return $app;
