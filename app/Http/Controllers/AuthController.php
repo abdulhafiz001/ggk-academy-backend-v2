@@ -46,28 +46,106 @@ class AuthController extends Controller
      */
     public function studentLogin(Request $request)
     {
-        $request->validate([
-            'admission_number' => 'required|string',
-            'password' => 'required|string',
-        ]);
-
-        $student = Student::where('admission_number', $request->admission_number)
-                         ->where('is_active', true)
-                         ->first();
-
-        if (!$student || !Hash::check($request->password, $student->password)) {
-            throw ValidationException::withMessages([
-                'admission_number' => ['The provided credentials are incorrect.'],
+        try {
+            $request->validate([
+                'admission_number' => 'required|string',
+                'password' => 'required|string',
             ]);
+
+            $student = Student::where('admission_number', $request->admission_number)
+                             ->where('is_active', true)
+                             ->first();
+
+            if (!$student) {
+                throw ValidationException::withMessages([
+                    'admission_number' => ['The provided credentials are incorrect.'],
+                ]);
+            }
+
+            // Verify password
+            // Handle both hashed and plain text passwords (for backward compatibility)
+            $passwordValid = false;
+            $storedPassword = $student->getAttributes()['password'] ?? $student->password;
+            
+            if ($storedPassword) {
+                // Check if stored password is a bcrypt hash
+                $isHashed = strlen($storedPassword) === 60 && 
+                           (strpos($storedPassword, '$2y$') === 0 || strpos($storedPassword, '$2a$') === 0 || strpos($storedPassword, '$2b$') === 0);
+                
+                if ($isHashed) {
+                    // Verify against hashed password
+                    $passwordValid = Hash::check($request->password, $storedPassword);
+                } else {
+                    // Plain text comparison (for legacy records)
+                    $passwordValid = $storedPassword === $request->password;
+                    
+                    // If valid and plain text, upgrade to hashed
+                    if ($passwordValid) {
+                        $student->password = $request->password; // Mutator will hash it
+                        $student->save();
+                    }
+                }
+            }
+
+            if (!$passwordValid) {
+                throw ValidationException::withMessages([
+                    'admission_number' => ['The provided credentials are incorrect.'],
+                ]);
+            }
+
+            // Create token
+            try {
+                $token = $student->createToken('student-token')->plainTextToken;
+            } catch (\Exception $e) {
+                \Log::error('Token creation failed', [
+                    'student_id' => $student->id,
+                    'error' => $e->getMessage()
+                ]);
+                throw new \Exception('Failed to create authentication token. Please contact administrator.');
+            }
+
+            // Load relationships safely - handle cases where class_id might be null
+            try {
+                if ($student->class_id) {
+                    $student->load([
+                        'schoolClass' => function ($query) {
+                            $query->with('formTeacher');
+                        }
+                    ]);
+                }
+                
+                $student->load('studentSubjects.subject');
+            } catch (\Exception $e) {
+                // Log but don't fail - relationships are optional for login
+                \Log::warning('Failed to load some student relationships', [
+                    'student_id' => $student->id,
+                    'error' => $e->getMessage()
+                ]);
+            }
+
+            return response()->json([
+                'student' => $student,
+                'token' => $token,
+                'role' => 'student',
+            ]);
+            
+        } catch (ValidationException $e) {
+            // Re-throw validation exceptions as-is
+            throw $e;
+        } catch (\Exception $e) {
+            // Log the actual error for debugging
+            \Log::error('Student login error', [
+                'admission_number' => $request->admission_number ?? 'unknown',
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            // Return a generic error message to the client
+            return response()->json([
+                'message' => 'An error occurred during login. Please try again later.',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+            ], 500);
         }
-
-        $token = $student->createToken('student-token')->plainTextToken;
-
-        return response()->json([
-            'student' => $student->load(['schoolClass.formTeacher', 'studentSubjects.subject']),
-            'token' => $token,
-            'role' => 'student',
-        ]);
     }
 
     /**
