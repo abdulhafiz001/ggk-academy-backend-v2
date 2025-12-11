@@ -19,7 +19,14 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => ['http://localhost:5173', 'http://localhost:3000', 'https://ggkacademy.termresult.com'],
+    'allowed_origins' => array_filter(array_map('trim', array_merge(
+        // Development origins
+        ['http://localhost:5173', 'http://localhost:3000'],
+        // Production origins from environment variable (comma-separated)
+        env('CORS_ALLOWED_ORIGINS') ? explode(',', env('CORS_ALLOWED_ORIGINS')) : [],
+        // Fallback to default production origin if set
+        env('FRONTEND_URL') ? [env('FRONTEND_URL')] : []
+    ))),
 
     'allowed_origins_patterns' => [],
 
