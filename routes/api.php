@@ -66,16 +66,20 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/admin/users/{user}', [AdminController::class, 'updateUser']);
         Route::delete('/admin/users/{user}', [AdminController::class, 'deleteUser']);
         
-        // Class management
+        // Class management - Static routes MUST come before parameterized routes
         Route::get('/admin/classes', [ClassController::class, 'index']);
         Route::post('/admin/classes', [ClassController::class, 'store']);
+        Route::get('/admin/classes/export', [ImportController::class, 'exportClasses']);
+        // Parameterized routes come after static routes
         Route::get('/admin/classes/{class}', [ClassController::class, 'show']);
         Route::put('/admin/classes/{class}', [ClassController::class, 'update']);
         Route::delete('/admin/classes/{class}', [ClassController::class, 'destroy']);
         
-        // Subject management
+        // Subject management - Static routes MUST come before parameterized routes
         Route::get('/admin/subjects', [SubjectController::class, 'index']);
         Route::post('/admin/subjects', [SubjectController::class, 'store']);
+        Route::get('/admin/subjects/export', [ImportController::class, 'exportSubjects']);
+        // Parameterized routes come after static routes
         Route::get('/admin/subjects/{subject}', [SubjectController::class, 'show']);
         Route::put('/admin/subjects/{subject}', [SubjectController::class, 'update']);
         Route::delete('/admin/subjects/{subject}', [SubjectController::class, 'destroy']);
@@ -84,6 +88,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/admin/teacher-assignments', [AdminController::class, 'getTeacherAssignments']);
         Route::post('/admin/teacher-assignments', [AdminController::class, 'assignTeacher']);
         Route::delete('/admin/teacher-assignments/{assignment}', [AdminController::class, 'removeTeacherAssignment']);
+        Route::get('/admin/teachers/export', [ImportController::class, 'exportTeachers']);
         
         // Student management - Static routes MUST come before parameterized routes
         Route::get('/admin/students', [AdminController::class, 'getStudents']);

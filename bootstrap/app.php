@@ -63,7 +63,10 @@ $app = Application::configure(basePath: dirname(__DIR__))
             Request::HEADER_X_FORWARDED_FOR | Request::HEADER_X_FORWARDED_HOST | Request::HEADER_X_FORWARDED_PORT | Request::HEADER_X_FORWARDED_PROTO);
     })
     ->withExceptions(function (Exceptions $exceptions) {
-        //
+        // Ensure API routes return JSON instead of redirects for unauthenticated requests
+        $exceptions->shouldRenderJsonWhen(function ($request, \Throwable $e) {
+            return $request->is('api/*');
+        });
     })->create(); 
 
 // Vercel/Serverless Specific Fix: Configure paths IMMEDIATELY after app creation

@@ -10,6 +10,8 @@ use App\Models\Score;
 use App\Models\SchoolClass;
 use App\Models\Subject;
 use App\Models\AcademicSession;
+use App\Models\User;
+use App\Models\TeacherSubject;
 use Maatwebsite\Excel\Facades\Excel;
 use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\WithHeadings;
@@ -139,33 +141,101 @@ class ImportController extends Controller
      */
     public function exportStudents(Request $request)
     {
-        $students = Student::with('schoolClass')
-            ->where('is_active', true)
-            ->get();
+        $request->validate([
+            'class_id' => 'nullable|exists:classes,id',
+            'include_subjects' => 'nullable',
+        ]);
 
-        $data = $students->map(function ($student) {
-            return [
-                'Admission Number' => $student->admission_number,
-                'First Name' => $student->first_name,
-                'Middle Name' => $student->middle_name ?? '',
-                'Last Name' => $student->last_name,
-                'Class' => $student->schoolClass->name ?? '',
-                'Email' => $student->email ?? '',
-                'Phone' => $student->phone ?? '',
-                'Date of Birth' => $student->date_of_birth ? $student->date_of_birth->format('Y-m-d') : '',
-                'Gender' => $student->gender ?? '',
-                'Parent Name' => $student->parent_name ?? '',
-                'Parent Phone' => $student->parent_phone ?? '',
-                'Parent Email' => $student->parent_email ?? '',
+        $query = Student::with(['schoolClass', 'studentSubjects.subject'])
+            ->where('is_active', true);
+
+        if ($request->has('class_id')) {
+            $query->where('class_id', $request->class_id);
+        }
+
+        $students = $query->get();
+        // Convert string "true"/"false" to boolean - handle query string values
+        $includeSubjectsValue = $request->input('include_subjects', false);
+        $includeSubjects = filter_var($includeSubjectsValue, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+        // If filter_var returns null, default to false
+        if ($includeSubjects === null) {
+            $includeSubjects = false;
+        }
+
+        if ($includeSubjects) {
+            // Export with subjects
+            $data = $students->map(function ($student) {
+                $subjects = $student->studentSubjects
+                    ->where('is_active', true)
+                    ->map(function ($studentSubject) {
+                        return $studentSubject->subject->name ?? '';
+                    })
+                    ->filter()
+                    ->implode(', ');
+
+                return [
+                    'first_name' => $student->first_name,
+                    'last_name' => $student->last_name,
+                    'middle_name' => $student->middle_name ?? '',
+                    'admission_number' => $student->admission_number,
+                    'email' => $student->email ?? '',
+                    'phone' => $student->phone ?? '',
+                    'gender' => $student->gender ?? '',
+                    'address' => $student->address ?? '',
+                    'subjects' => $subjects,
+                ];
+            });
+        } else {
+            // Export basic data only
+            $data = $students->map(function ($student) {
+                return [
+                    'first_name' => $student->first_name,
+                    'last_name' => $student->last_name,
+                    'middle_name' => $student->middle_name ?? '',
+                    'admission_number' => $student->admission_number,
+                    'email' => $student->email ?? '',
+                    'phone' => $student->phone ?? '',
+                    'gender' => $student->gender ?? '',
+                    'address' => $student->address ?? '',
+                ];
+            });
+        }
+
+        $filename = $includeSubjects 
+            ? 'students_with_subjects_export_' . date('Y-m-d') . '.xlsx'
+            : 'students_export_' . date('Y-m-d') . '.xlsx';
+
+        $headings = $includeSubjects
+            ? [
+                'first_name',
+                'last_name',
+                'middle_name',
+                'admission_number',
+                'email',
+                'phone',
+                'gender',
+                'address',
+                'subjects',
+            ]
+            : [
+                'first_name',
+                'last_name',
+                'middle_name',
+                'admission_number',
+                'email',
+                'phone',
+                'gender',
+                'address',
             ];
-        });
 
-        return Excel::download(new class($data) implements FromCollection, WithHeadings {
+        return Excel::download(new class($data, $headings) implements FromCollection, WithHeadings {
             protected $data;
+            protected $headings;
 
-            public function __construct($data)
+            public function __construct($data, $headings)
             {
                 $this->data = $data;
+                $this->headings = $headings;
             }
 
             public function collection()
@@ -175,22 +245,9 @@ class ImportController extends Controller
 
             public function headings(): array
             {
-                return [
-                    'Admission Number',
-                    'First Name',
-                    'Middle Name',
-                    'Last Name',
-                    'Class',
-                    'Email',
-                    'Phone',
-                    'Date of Birth',
-                    'Gender',
-                    'Parent Name',
-                    'Parent Phone',
-                    'Parent Email',
-                ];
+                return $this->headings;
             }
-        }, 'students_export_' . date('Y-m-d') . '.xlsx');
+        }, $filename);
     }
 
     /**
@@ -200,6 +257,7 @@ class ImportController extends Controller
     {
         $request->validate([
             'class_id' => 'nullable|exists:classes,id',
+            'subject_id' => 'nullable|exists:subjects,id',
             'term' => 'nullable|in:first,second,third',
             'academic_session_id' => 'nullable|exists:academic_sessions,id',
         ]);
@@ -209,6 +267,10 @@ class ImportController extends Controller
 
         if ($request->has('class_id')) {
             $query->where('class_id', $request->class_id);
+        }
+
+        if ($request->has('subject_id')) {
+            $query->where('subject_id', $request->subject_id);
         }
 
         if ($request->has('term')) {
@@ -226,14 +288,9 @@ class ImportController extends Controller
             return [
                 'Admission Number' => $score->student->admission_number ?? '',
                 'Student Name' => ($score->student->first_name ?? '') . ' ' . ($score->student->last_name ?? ''),
-                'Class' => $score->schoolClass->name ?? '',
-                'Subject' => $score->subject->name ?? '',
-                'Term' => ucfirst($score->term),
-                'First CA' => $score->first_ca ?? '',
-                'Second CA' => $score->second_ca ?? '',
-                'Exam Score' => $score->exam_score ?? '',
-                'Total Score' => $score->total_score ?? '',
-                'Grade' => $score->grade ?? '',
+                '1st CA' => $score->first_ca ?? '',
+                '2nd CA' => $score->second_ca ?? '',
+                'Exam' => $score->exam_score ?? '',
                 'Remark' => $score->remark ?? '',
             ];
         });
@@ -256,14 +313,9 @@ class ImportController extends Controller
                 return [
                     'Admission Number',
                     'Student Name',
-                    'Class',
-                    'Subject',
-                    'Term',
-                    'First CA',
-                    'Second CA',
-                    'Exam Score',
-                    'Total Score',
-                    'Grade',
+                    '1st CA',
+                    '2nd CA',
+                    'Exam',
                     'Remark',
                 ];
             }
@@ -424,6 +476,159 @@ class ImportController extends Controller
                 return $this->data;
             }
         }, 'score_import_template.xlsx');
+    }
+
+    /**
+     * Export classes to Excel/CSV
+     */
+    public function exportClasses(Request $request)
+    {
+        $classes = SchoolClass::with('formTeacher')
+            ->where('is_active', true)
+            ->get();
+
+        $data = $classes->map(function ($class) {
+            return [
+                'Name' => $class->name,
+                'Description' => $class->description ?? '',
+                'Form Teacher' => $class->formTeacher->name ?? 'Not assigned',
+                'Students Count' => $class->students()->where('is_active', true)->count(),
+            ];
+        });
+
+        return Excel::download(new class($data) implements FromCollection, WithHeadings {
+            protected $data;
+
+            public function __construct($data)
+            {
+                $this->data = $data;
+            }
+
+            public function collection()
+            {
+                return $this->data;
+            }
+
+            public function headings(): array
+            {
+                return [
+                    'Name',
+                    'Description',
+                    'Form Teacher',
+                    'Students Count',
+                ];
+            }
+        }, 'classes_export_' . date('Y-m-d') . '.xlsx');
+    }
+
+    /**
+     * Export subjects to Excel/CSV
+     */
+    public function exportSubjects(Request $request)
+    {
+        $subjects = Subject::where('is_active', true)->get();
+
+        $data = $subjects->map(function ($subject) {
+            return [
+                'Name' => $subject->name,
+                'Code' => $subject->code,
+                'Description' => $subject->description ?? '',
+            ];
+        });
+
+        return Excel::download(new class($data) implements FromCollection, WithHeadings {
+            protected $data;
+
+            public function __construct($data)
+            {
+                $this->data = $data;
+            }
+
+            public function collection()
+            {
+                return $this->data;
+            }
+
+            public function headings(): array
+            {
+                return [
+                    'Name',
+                    'Code',
+                    'Description',
+                ];
+            }
+        }, 'subjects_export_' . date('Y-m-d') . '.xlsx');
+    }
+
+    /**
+     * Export teachers to Excel/CSV with assigned classes, subjects, and form teacher classes
+     */
+    public function exportTeachers(Request $request)
+    {
+        $teachers = User::where('role', 'teacher')
+            ->where('is_active', true)
+            ->get();
+
+        $data = $teachers->map(function ($teacher) {
+            // Get assigned classes and subjects from teacher assignments
+            $assignments = TeacherSubject::where('teacher_id', $teacher->id)
+                ->where('is_active', true)
+                ->with(['subject', 'schoolClass'])
+                ->get();
+
+            $assignedClasses = $assignments->pluck('schoolClass.name')
+                ->filter()
+                ->unique()
+                ->implode(', ');
+
+            $assignedSubjects = $assignments->pluck('subject.name')
+                ->filter()
+                ->unique()
+                ->implode(', ');
+
+            // Get form teacher classes
+            $formTeacherClasses = SchoolClass::where('form_teacher_id', $teacher->id)
+                ->where('is_active', true)
+                ->pluck('name')
+                ->implode(', ');
+
+            return [
+                'Name' => $teacher->name,
+                'Username' => $teacher->username,
+                'Email' => $teacher->email ?? '',
+                'Phone' => $teacher->phone ?? '',
+                'Assigned Classes' => $assignedClasses ?: 'None',
+                'Assigned Subjects' => $assignedSubjects ?: 'None',
+                'Form Teacher Classes' => $formTeacherClasses ?: 'None',
+            ];
+        });
+
+        return Excel::download(new class($data) implements FromCollection, WithHeadings {
+            protected $data;
+
+            public function __construct($data)
+            {
+                $this->data = $data;
+            }
+
+            public function collection()
+            {
+                return $this->data;
+            }
+
+            public function headings(): array
+            {
+                return [
+                    'Name',
+                    'Username',
+                    'Email',
+                    'Phone',
+                    'Assigned Classes',
+                    'Assigned Subjects',
+                    'Form Teacher Classes',
+                ];
+            }
+        }, 'teachers_export_' . date('Y-m-d') . '.xlsx');
     }
 }
 
