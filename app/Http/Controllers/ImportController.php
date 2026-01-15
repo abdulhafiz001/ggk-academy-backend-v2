@@ -256,8 +256,11 @@ class ImportController extends Controller
     public function exportScores(Request $request)
     {
         $request->validate([
+            'teacher_id' => 'nullable|exists:users,id',
             'class_id' => 'nullable|exists:classes,id',
             'subject_id' => 'nullable|exists:subjects,id',
+            'subject_ids' => 'nullable|array',
+            'subject_ids.*' => 'exists:subjects,id',
             'term' => 'nullable|in:first,second,third',
             'academic_session_id' => 'nullable|exists:academic_sessions,id',
         ]);
@@ -265,11 +268,41 @@ class ImportController extends Controller
         $query = Score::with(['student', 'subject', 'schoolClass'])
             ->where('is_active', true);
 
+        // If teacher_id is provided, filter by teacher's assignments
+        if ($request->has('teacher_id')) {
+            $teacherId = $request->teacher_id;
+            $teacherAssignments = TeacherSubject::where('teacher_id', $teacherId)
+                ->where('is_active', true)
+                ->get();
+            
+            // Get class IDs and subject IDs from teacher's assignments
+            $assignedClassIds = $teacherAssignments->pluck('class_id')->unique()->toArray();
+            $assignedSubjectIds = $teacherAssignments->pluck('subject_id')->unique()->toArray();
+            
+            // Filter by assigned classes
+            if (!empty($assignedClassIds)) {
+                $query->whereIn('class_id', $assignedClassIds);
+            } else {
+                // If teacher has no assignments, return empty result
+                $query->whereRaw('1 = 0');
+            }
+            
+            // Filter by assigned subjects if no specific subject_ids provided
+            if (!$request->has('subject_ids') && !$request->has('subject_id')) {
+                if (!empty($assignedSubjectIds)) {
+                    $query->whereIn('subject_id', $assignedSubjectIds);
+                }
+            }
+        }
+
         if ($request->has('class_id')) {
             $query->where('class_id', $request->class_id);
         }
 
-        if ($request->has('subject_id')) {
+        // Handle both single subject_id and array of subject_ids
+        if ($request->has('subject_ids') && is_array($request->subject_ids) && count($request->subject_ids) > 0) {
+            $query->whereIn('subject_id', $request->subject_ids);
+        } elseif ($request->has('subject_id')) {
             $query->where('subject_id', $request->subject_id);
         }
 
@@ -284,10 +317,38 @@ class ImportController extends Controller
 
         $scores = $query->get();
 
+        // Get teacher and class names for filename if provided
+        $teacherName = null;
+        $className = null;
+        if ($request->has('teacher_id')) {
+            $teacher = \App\Models\User::find($request->teacher_id);
+            if ($teacher) {
+                $teacherName = str_replace([' ', '/', '\\'], '_', $teacher->name);
+            }
+        }
+        if ($request->has('class_id')) {
+            $class = SchoolClass::find($request->class_id);
+            if ($class) {
+                $className = str_replace([' ', '/', '\\'], '_', $class->name);
+            }
+        }
+
+        // Build filename
+        $filenameParts = ['scores_export'];
+        if ($teacherName) {
+            $filenameParts[] = $teacherName;
+        }
+        if ($className) {
+            $filenameParts[] = $className;
+        }
+        $filenameParts[] = date('Y-m-d');
+        $filename = implode('_', $filenameParts) . '.xlsx';
+
         $data = $scores->map(function ($score) {
             return [
                 'Admission Number' => $score->student->admission_number ?? '',
                 'Student Name' => ($score->student->first_name ?? '') . ' ' . ($score->student->last_name ?? ''),
+                'Subject' => $score->subject->name ?? '',
                 '1st CA' => $score->first_ca ?? '',
                 '2nd CA' => $score->second_ca ?? '',
                 'Exam' => $score->exam_score ?? '',
@@ -313,13 +374,14 @@ class ImportController extends Controller
                 return [
                     'Admission Number',
                     'Student Name',
+                    'Subject',
                     '1st CA',
                     '2nd CA',
                     'Exam',
                     'Remark',
                 ];
             }
-        }, 'scores_export_' . date('Y-m-d') . '.xlsx');
+        }, $filename);
     }
 
     /**

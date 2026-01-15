@@ -300,6 +300,64 @@ class AdminController extends Controller
     }
 
     /**
+     * Get teacher's classes and subjects for export
+     */
+    public function getTeacherClassesAndSubjects(Request $request, $teacherId)
+    {
+        $teacher = User::find($teacherId);
+        
+        if (!$teacher || $teacher->role !== 'teacher') {
+            return response()->json(['message' => 'Teacher not found'], 404);
+        }
+
+        $assignments = TeacherSubject::where('teacher_id', $teacherId)
+            ->where('is_active', true)
+            ->with(['subject', 'schoolClass'])
+            ->get();
+
+        // Group by class
+        $classesMap = [];
+        foreach ($assignments as $assignment) {
+            $classId = $assignment->class_id;
+            $class = $assignment->schoolClass;
+            $subject = $assignment->subject;
+
+            if (!isset($classesMap[$classId])) {
+                $classesMap[$classId] = [
+                    'id' => $class->id,
+                    'name' => $class->name,
+                    'subjects' => []
+                ];
+            }
+
+            // Add subject if not already added
+            $subjectExists = false;
+            foreach ($classesMap[$classId]['subjects'] as $existingSubject) {
+                if ($existingSubject['id'] === $subject->id) {
+                    $subjectExists = true;
+                    break;
+                }
+            }
+
+            if (!$subjectExists) {
+                $classesMap[$classId]['subjects'][] = [
+                    'id' => $subject->id,
+                    'name' => $subject->name,
+                    'code' => $subject->code ?? ''
+                ];
+            }
+        }
+
+        return response()->json([
+            'teacher' => [
+                'id' => $teacher->id,
+                'name' => $teacher->name
+            ],
+            'classes' => array_values($classesMap)
+        ]);
+    }
+
+    /**
      * Assign teacher to subject and class
      */
     public function assignTeacher(Request $request)

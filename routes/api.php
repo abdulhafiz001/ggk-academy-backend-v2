@@ -86,6 +86,7 @@ Route::middleware('auth:sanctum')->group(function () {
         
         // Teacher assignments
         Route::get('/admin/teacher-assignments', [AdminController::class, 'getTeacherAssignments']);
+        Route::get('/admin/teachers/{teacher}/classes-subjects', [AdminController::class, 'getTeacherClassesAndSubjects']);
         Route::post('/admin/teacher-assignments', [AdminController::class, 'assignTeacher']);
         Route::delete('/admin/teacher-assignments/{assignment}', [AdminController::class, 'removeTeacherAssignment']);
         Route::get('/admin/teachers/export', [ImportController::class, 'exportTeachers']);
